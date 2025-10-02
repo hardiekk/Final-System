@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Face Recognition Attendance</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+<style>
+  body { padding:30px; background:#f8f9fa; }
+  #videoElement { width:100%; max-width:640px; border-radius:12px; box-shadow:0 0 15px rgba(0,0,0,0.1); }
+  #tick { display:none; font-size:72px; color:limegreen; }
+  #recognizedNames { margin-top:20px; font-size:1.4em; color:green; }
+</style>
+</head>
+<body>
+<div class="container text-center">
+  <h1 class="mb-4">Face Recognition Attendance System</h1>
+  <video autoplay muted id="videoElement" class="mx-auto d-block rounded"></video>
+  <div class="my-3">
+    <label for="subjectSelect">Select Subject:</label>
+    <select id="subjectSelect" class="form-select mb-3 w-50 mx-auto">
+      <option value="" disabled selected>Select Subject</option>
+      <option>Operating System</option>
+      <option>Software Engineering</option>
+      <option>Data Analytics</option>
+    </select>
+    <button id="startBtn" class="btn btn-success me-2">Start Camera</button>
+    <button id="stopBtn" class="btn btn-danger me-2" disabled>Stop Camera</button>
+    <button id="captureBtn" class="btn btn-primary" disabled>Recognize & Mark Attendance</button>
+  </div>
+  <div id="spinner" class="spinner-border text-primary my-3" role="status" style="display:none;">
+    <span class="visually-hidden">Loading...</span>
+  </div>
+  <div id="recognizedNames"></div>
+  <div id="tick"><i class="bi bi-check-circle-fill"></i></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  const video = document.getElementById('videoElement');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const captureBtn = document.getElementById('captureBtn');
+  const spinner = document.getElementById('spinner');
+  const recognizedNamesDiv = document.getElementById('recognizedNames');
+  const tick = document.getElementById('tick');
+  const subjectSelect = document.getElementById('subjectSelect');
+  let stream = null;
+
+  startBtn.onclick = async () => {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      captureBtn.disabled = false;
+      recognizedNamesDiv.innerText = '';
+      tick.style.display = 'none';
+    } catch (err) {
+      alert('Camera access denied or not available.');
+    }
+  };
+
+  stopBtn.onclick = () => {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      video.srcObject = null;
+    }
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    captureBtn.disabled = true;
+    spinner.style.display = 'none';
+    recognizedNamesDiv.innerText = '';
+    tick.style.display = 'none';
+  };
+
+  function speak(text) {
+    if (!('speechSynthesis' in window)) {
+      console.log('Speech synthesis not supported.');
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(text);
+    window.speechSynthesis.speak(utterance);
+  }
+
+  captureBtn.onclick = async () => {
+    if (!stream) return;
+    const subject = subjectSelect.value;
+    if (!subject) {
+      alert('Please select a subject first.');
+      return;
+    }
+
+    spinner.style.display = 'inline-block';
+    recognizedNamesDiv.innerText = '';
+    tick.style.display = 'none';
+
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataURL = canvas.toDataURL('image/jpeg');
+
+    try {
+      const response = await fetch('http://127.0.0.1:5000/recognize', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({image: dataURL, subject: subject})
+      });
+      if (!response.ok) throw new Error('Network response was not ok');
+
+      const data = await response.json();
+      spinner.style.display = 'none';
+
+      if (data.names && data.names.length > 0) {
+        recognizedNamesDiv.innerText = 'Recognized: ' + data.names.join(', ');
+        speak(`Hello ${data.names.join(', ')}, attendance marked.`);
+        tick.style.display = 'block';
+        setTimeout(() => {
+          tick.style.display = 'none';
+          window.location.href = '/attendance';
+        }, 3000);
+      } else {
+        recognizedNamesDiv.innerText = 'No face recognized. Please try again.';
+      }
+    } catch(err) {
+      spinner.style.display = 'none';
+      alert('Server error: ' + err.message);
+    }
+  };
+</script>
+</body>
+</html>
